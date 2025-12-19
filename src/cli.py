@@ -9,8 +9,8 @@ import sys
 from typing import Dict, Any
 from colorama import Fore, Style, init
 
-from .drive_client import DriveClient
-from .auth.credential_manager import CredentialManager
+from drive_client import DriveClient
+from auth.credential_manager import CredentialManager
 
 # Initialize colorama for cross-platform colored output
 init()

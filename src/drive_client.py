@@ -11,7 +11,7 @@ from google.oauth2 import service_account
 from googleapiclient.errors import HttpError
 from colorama import Fore, Style, init
 
-from .auth.credential_manager import CredentialManager
+from auth.credential_manager import CredentialManager
 
 # Initialize colorama for cross-platform colored output
 init()
