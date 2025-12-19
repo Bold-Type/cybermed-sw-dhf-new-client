@@ -1,0 +1,8 @@
+{
+  "template_folder_id": "1HefI6gL2Z3AKmUwZVMBJBk5DogRik6k8",
+  "target_parent_folder_id": "1ucrox_lDFYas7w1iWx8FaektDr_LR8AK",
+  "template_name": "Client Folder Template",
+  "target_parent_name": "Client Shared Folders",
+  "keyring_service": "cybermed-sw-dhf-new-client",
+  "keyring_username": "service_account"
+}
