@@ -73,8 +73,12 @@ class DriveClient:
             if not self.service:
                 raise Exception("Not authenticated. Call authenticate() first.")
             
-            # Get folder metadata
-            folder_metadata = self.service.files().get(fileId=folder_id, fields="id,name,mimeType").execute()
+            # Get folder metadata (with Shared Drive support)
+            folder_metadata = self.service.files().get(
+                fileId=folder_id, 
+                fields="id,name,mimeType",
+                supportsAllDrives=True
+            ).execute()
             
             structure = {
                 'id': folder_metadata['id'],
@@ -83,12 +87,14 @@ class DriveClient:
                 'children': []
             }
             
-            # Get all items in the folder
+            # Get all items in the folder (with Shared Drive support)
             query = f"'{folder_id}' in parents and trashed=false"
             results = self.service.files().list(
                 q=query,
                 fields="files(id,name,mimeType,parents)",
-                orderBy="folder,name"
+                orderBy="folder,name",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True
             ).execute()
             
             items = results.get('files', [])
@@ -138,7 +144,11 @@ class DriveClient:
                 'parents': [parent_id]
             }
             
-            folder = self.service.files().create(body=file_metadata, fields='id').execute()
+            folder = self.service.files().create(
+                body=file_metadata, 
+                fields='id',
+                supportsAllDrives=True
+            ).execute()
             folder_id = folder.get('id')
             
             print(f"{Fore.CYAN}✓ Created folder: {name}{Style.RESET_ALL}")
@@ -175,7 +185,8 @@ class DriveClient:
             copied_file = self.service.files().copy(
                 fileId=source_file_id,
                 body=file_metadata,
-                fields='id'
+                fields='id',
+                supportsAllDrives=True
             ).execute()
             
             copied_file_id = copied_file.get('id')
@@ -256,18 +267,20 @@ class DriveClient:
                 print(f"{Fore.YELLOW}⚠ Not authenticated{Style.RESET_ALL}")
                 return False
             
-            # Test access to template folder
+            # Test access to template folder (with Shared Drive support)
             template_folder_id = self.config["template_folder_id"]
             template_folder = self.service.files().get(
                 fileId=template_folder_id, 
-                fields="id,name"
+                fields="id,name",
+                supportsAllDrives=True
             ).execute()
             
-            # Test access to target parent folder
+            # Test access to target parent folder (with Shared Drive support)
             target_folder_id = self.config["target_parent_folder_id"]
             target_folder = self.service.files().get(
                 fileId=target_folder_id, 
-                fields="id,name"
+                fields="id,name",
+                supportsAllDrives=True
             ).execute()
             
             print(f"{Fore.GREEN}✓ Access verified:{Style.RESET_ALL}")
