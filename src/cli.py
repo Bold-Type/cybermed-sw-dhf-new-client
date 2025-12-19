@@ -116,8 +116,12 @@ class WorkspaceCreatorCLI:
         try:
             print(f"\n{Fore.BLUE}Starting workspace creation...{Style.RESET_ALL}")
             
+            # Force fresh authentication to clear any potential cache
+            if not self.drive_client.force_fresh_authentication():
+                print(f"{Fore.RED}✗ Failed to refresh authentication{Style.RESET_ALL}")
+                return False
+            
             # Get template folder structure
-            print(f"{Fore.YELLOW}Reading template structure...{Style.RESET_ALL}")
             template_structure = self.drive_client.get_folder_structure(
                 self.config["template_folder_id"]
             )

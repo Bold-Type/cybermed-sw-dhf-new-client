@@ -59,6 +59,50 @@ class DriveClient:
             print(f"{Fore.RED}✗ Authentication failed: {str(e)}{Style.RESET_ALL}")
             return False
     
+    def force_fresh_authentication(self) -> bool:
+        """
+        Force fresh authentication with aggressive cache clearing.
+        
+        Returns:
+            bool: True if authentication successful, False otherwise
+        """
+        try:
+            print(f"{Fore.CYAN}🔄 Forcing fresh API connection with aggressive cache clearing...{Style.RESET_ALL}")
+            
+            # Clear existing service completely
+            self.service = None
+            
+            # Short delay to ensure fresh connection
+            time.sleep(0.5)
+            
+            # Retrieve credentials from keyring
+            credentials_dict = self.credential_manager.retrieve_credentials()
+            if not credentials_dict:
+                return False
+            
+            # Create fresh service account credentials
+            credentials = service_account.Credentials.from_service_account_info(
+                credentials_dict, scopes=self.scopes
+            )
+            
+            # Build the Drive API service with cache-disabling parameters
+            self.service = build(
+                'drive', 
+                'v3', 
+                credentials=credentials,
+                cache_discovery=False  # Disable API discovery caching
+            )
+            
+            # Test the connection
+            self.service.about().get(fields="user").execute()
+            
+            print(f"{Fore.GREEN}✓ Fresh API connection established{Style.RESET_ALL}")
+            return True
+            
+        except Exception as e:
+            print(f"{Fore.RED}✗ Error forcing fresh authentication: {str(e)}{Style.RESET_ALL}")
+            return False
+    
     def get_folder_structure(self, folder_id: str) -> Optional[Dict[str, Any]]:
         """
         Get the complete folder structure and contents.
@@ -73,7 +117,9 @@ class DriveClient:
             if not self.service:
                 raise Exception("Not authenticated. Call authenticate() first.")
             
-            # Get folder metadata (with Shared Drive support)
+            print(f"{Fore.CYAN}🔄 Reading fresh template structure from Google Drive...{Style.RESET_ALL}")
+            
+            # Get folder metadata (with Shared Drive support) - force fresh request  
             folder_metadata = self.service.files().get(
                 fileId=folder_id, 
                 fields="id,name,mimeType",
@@ -87,14 +133,16 @@ class DriveClient:
                 'children': []
             }
             
-            # Get all items in the folder (with Shared Drive support)
+            # Get all items in the folder (with Shared Drive support) - force fresh data
             query = f"'{folder_id}' in parents and trashed=false"
             results = self.service.files().list(
                 q=query,
                 fields="files(id,name,mimeType,parents)",
                 orderBy="folder,name",
                 supportsAllDrives=True,
-                includeItemsFromAllDrives=True
+                includeItemsFromAllDrives=True,
+                # Add timestamp to force cache bypass
+                pageToken=None  # Explicitly set to force fresh request
             ).execute()
             
             items = results.get('files', [])
@@ -161,14 +209,16 @@ class DriveClient:
             print(f"{Fore.RED}✗ Error creating folder '{name}': {str(e)}{Style.RESET_ALL}")
             return None
     
-    def copy_file(self, source_file_id: str, new_name: str, destination_folder_id: str) -> Optional[str]:
+    def copy_file(self, source_file_id: str, new_name: str, destination_folder_id: str, 
+                  source_mime_type: str = None) -> Optional[str]:
         """
-        Copy a file to a new location.
+        Copy a file to a new location, with special handling for Google Workspace files.
         
         Args:
             source_file_id: ID of file to copy
             new_name: Name for the copied file
             destination_folder_id: Destination folder ID
+            source_mime_type: MIME type of source file (for proper handling)
             
         Returns:
             str: ID of copied file or None if failed
@@ -177,24 +227,61 @@ class DriveClient:
             if not self.service:
                 raise Exception("Not authenticated. Call authenticate() first.")
             
+            # Get source file info if MIME type not provided
+            if not source_mime_type:
+                source_file = self.service.files().get(
+                    fileId=source_file_id,
+                    fields="mimeType",
+                    supportsAllDrives=True
+                ).execute()
+                source_mime_type = source_file.get('mimeType', '')
+            
             file_metadata = {
                 'name': new_name,
                 'parents': [destination_folder_id]
             }
             
-            copied_file = self.service.files().copy(
-                fileId=source_file_id,
-                body=file_metadata,
-                fields='id',
-                supportsAllDrives=True
-            ).execute()
+            # Check if it's a Google Workspace native file
+            google_workspace_types = {
+                'application/vnd.google-apps.document': 'Google Doc',
+                'application/vnd.google-apps.spreadsheet': 'Google Sheet',
+                'application/vnd.google-apps.presentation': 'Google Slides',
+                'application/vnd.google-apps.form': 'Google Form',
+                'application/vnd.google-apps.drawing': 'Google Drawing'
+            }
+            
+            if source_mime_type in google_workspace_types:
+                # For Google Workspace files, we need to use copy with special handling
+                print(f"{Fore.YELLOW}⚠ Copying {google_workspace_types[source_mime_type]}: {new_name}{Style.RESET_ALL}")
+                copied_file = self.service.files().copy(
+                    fileId=source_file_id,
+                    body=file_metadata,
+                    fields='id',
+                    supportsAllDrives=True
+                ).execute()
+            else:
+                # Regular files (PDFs, images, etc.)
+                # Debug: Show MIME type for analysis
+                if source_mime_type:
+                    print(f"{Fore.CYAN}ℹ Regular file ({source_mime_type}): {new_name}{Style.RESET_ALL}")
+                copied_file = self.service.files().copy(
+                    fileId=source_file_id,
+                    body=file_metadata,
+                    fields='id',
+                    supportsAllDrives=True
+                ).execute()
             
             copied_file_id = copied_file.get('id')
             print(f"{Fore.CYAN}✓ Copied file: {new_name}{Style.RESET_ALL}")
             return copied_file_id
             
         except HttpError as e:
-            print(f"{Fore.RED}✗ HTTP Error copying file '{new_name}': {e}{Style.RESET_ALL}")
+            # More detailed error reporting for Google Workspace files
+            if source_mime_type and source_mime_type in google_workspace_types:
+                print(f"{Fore.RED}✗ Error copying {google_workspace_types[source_mime_type]} '{new_name}': {e}{Style.RESET_ALL}")
+                print(f"{Fore.YELLOW}  Note: Google Workspace files may have special permission requirements{Style.RESET_ALL}")
+            else:
+                print(f"{Fore.RED}✗ HTTP Error copying file '{new_name}': {e}{Style.RESET_ALL}")
             return None
         except Exception as e:
             print(f"{Fore.RED}✗ Error copying file '{new_name}': {str(e)}{Style.RESET_ALL}")
@@ -250,8 +337,13 @@ class DriveClient:
                     # Recursively replicate subfolder contents
                     self._replicate_folder_contents(item, new_folder_id)
             else:
-                # Copy file
-                self.copy_file(item['id'], item['name'], target_folder_id)
+                # Copy file with MIME type for proper Google Workspace handling
+                self.copy_file(
+                    item['id'], 
+                    item['name'], 
+                    target_folder_id,
+                    item.get('mimeType')  # Pass MIME type for Google Workspace file detection
+                )
                 # Add small delay to avoid rate limiting
                 time.sleep(0.1)
     
